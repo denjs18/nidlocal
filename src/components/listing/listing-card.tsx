@@ -103,7 +103,9 @@ export function ListingCard({ listing, checkIn, checkOut, nights }: Props) {
           </div>
 
           {listing.complianceStatus === "COMPLIANT" && (
-            <CheckCircle className="w-4 h-4 text-brand-500" title="Annonce conforme" />
+            <span title="Annonce conforme">
+              <CheckCircle className="w-4 h-4 text-brand-500" />
+            </span>
           )}
         </div>
 

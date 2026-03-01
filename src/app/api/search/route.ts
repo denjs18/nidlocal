@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import type { Prisma } from "@prisma/client";
+import { type ListingType, type Prisma } from "@prisma/client";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
   const where: Prisma.ListingWhereInput = {
     status: "PUBLISHED",
     maxGuests: { gte: guests },
-    ...(listingType ? { listingType: listingType as Prisma.EnumListingTypeFilter } : {}),
+    ...(listingType ? { listingType: listingType as ListingType } : {}),
     ...(minPrice ? { pricePerNight: { gte: parseInt(minPrice) * 100 } } : {}),
     ...(maxPrice ? { pricePerNight: { lte: parseInt(maxPrice) * 100 } } : {}),
     ...(hasEcoLabel ? { hasEcoLabel: true } : {}),

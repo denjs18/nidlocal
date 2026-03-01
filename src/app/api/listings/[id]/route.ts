@@ -3,10 +3,12 @@ import { db } from "@/lib/db";
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
+
   const listing = await db.listing.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: {
       photos: { orderBy: { position: "asc" } },
       amenities: { include: { amenity: true } },
@@ -51,7 +53,9 @@ export async function GET(
 
   const ratings = listing.reviews.map((r) => r.rating);
   const averageRating =
-    ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : null;
+    ratings.length > 0
+      ? ratings.reduce((a, b) => a + b, 0) / ratings.length
+      : null;
 
   return NextResponse.json({
     data: {

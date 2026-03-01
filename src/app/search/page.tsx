@@ -1,22 +1,23 @@
-import { Suspense } from "react";
 import { ListingCard } from "@/components/listing/listing-card";
 import type { ListingCard as TListingCard } from "@/types";
 
+type SearchQuery = {
+  destination?: string;
+  checkIn?: string;
+  checkOut?: string;
+  guests?: string;
+  listingType?: string;
+  minPrice?: string;
+  maxPrice?: string;
+  hasEcoLabel?: string;
+  page?: string;
+};
+
 interface SearchPageProps {
-  searchParams: {
-    destination?: string;
-    checkIn?: string;
-    checkOut?: string;
-    guests?: string;
-    listingType?: string;
-    minPrice?: string;
-    maxPrice?: string;
-    hasEcoLabel?: string;
-    page?: string;
-  };
+  searchParams: Promise<SearchQuery>;
 }
 
-async function getListings(params: SearchPageProps["searchParams"]) {
+async function getListings(params: SearchQuery) {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
   const url = new URL("/api/search", baseUrl);
   Object.entries(params).forEach(([k, v]) => {
@@ -30,11 +31,13 @@ async function getListings(params: SearchPageProps["searchParams"]) {
 }
 
 export default async function SearchPage({ searchParams }: SearchPageProps) {
-  const { listings, total, page, pages } = await getListings(searchParams);
+  const sp = await searchParams;
+  const { listings, total, page, pages } = await getListings(sp);
+
   const nights =
-    searchParams.checkIn && searchParams.checkOut
+    sp.checkIn && sp.checkOut
       ? Math.round(
-          (new Date(searchParams.checkOut).getTime() - new Date(searchParams.checkIn).getTime()) /
+          (new Date(sp.checkOut).getTime() - new Date(sp.checkIn).getTime()) /
             (1000 * 60 * 60 * 24)
         )
       : undefined;
@@ -44,9 +47,8 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
       <header className="bg-white border-b border-gray-100 px-4 py-3 sticky top-0 z-30">
         <div className="page-container flex items-center gap-4">
           <a href="/" className="text-lg font-bold text-brand-600">NidLocal</a>
-          {/* SearchBar inline */}
           <div className="flex-1 max-w-xl bg-gray-100 rounded-xl px-4 py-2 text-sm text-gray-500 cursor-pointer hover:bg-gray-200 transition-colors">
-            {searchParams.destination ?? "Destination"} · {searchParams.checkIn ?? "Dates"} · {searchParams.guests ?? "1"} voy.
+            {sp.destination ?? "Destination"} · {sp.checkIn ?? "Dates"} · {sp.guests ?? "1"} voy.
           </div>
         </div>
       </header>
@@ -54,7 +56,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
       <div className="page-container py-6">
         <p className="text-sm text-gray-500 mb-5">
           <span className="font-semibold text-gray-900">{total}</span> logement{total > 1 ? "s" : ""}{" "}
-          {searchParams.destination ? `à ${searchParams.destination}` : "disponibles"}
+          {sp.destination ? `à ${sp.destination}` : "disponibles"}
         </p>
 
         {listings.length === 0 ? (
@@ -69,19 +71,18 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
               <ListingCard
                 key={listing.id}
                 listing={listing}
-                checkIn={searchParams.checkIn}
-                checkOut={searchParams.checkOut}
+                checkIn={sp.checkIn}
+                checkOut={sp.checkOut}
                 nights={nights}
               />
             ))}
           </div>
         )}
 
-        {/* Pagination basique */}
         {pages > 1 && (
           <div className="flex justify-center gap-2 mt-10">
             {Array.from({ length: pages }, (_, i) => i + 1).map((p) => {
-              const params = new URLSearchParams(searchParams as Record<string, string>);
+              const params = new URLSearchParams(sp as Record<string, string>);
               params.set("page", String(p));
               return (
                 <a

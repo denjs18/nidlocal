@@ -5,16 +5,24 @@ import { checkListingCompliance } from "@/lib/compliance/rules";
 
 export async function POST(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const user = await requireAnyRole("HOST", "ADMIN");
 
     const hostProfile = await db.hostProfile.findUnique({ where: { userId: user.id } });
 
     const listing = await db.listing.findUnique({
-      where: { id: params.id },
-      select: { id: true, hostId: true, status: true, title: true, description: true, pricePerNight: true },
+      where: { id },
+      select: {
+        id: true,
+        hostId: true,
+        status: true,
+        title: true,
+        description: true,
+        pricePerNight: true,
+      },
     });
 
     if (!listing) {
@@ -25,7 +33,6 @@ export async function POST(
       return NextResponse.json({ code: "forbidden" }, { status: 403 });
     }
 
-    // Vérifier les champs minimaux requis
     const missingFields: string[] = [];
     if (!listing.title || listing.title.length < 10) missingFields.push("title");
     if (!listing.description || listing.description.length < 20) missingFields.push("description");
@@ -38,7 +45,6 @@ export async function POST(
       );
     }
 
-    // Vérifier conformité locale
     const compliance = await checkListingCompliance(listing.id);
     if (!compliance.ok) {
       return NextResponse.json(
@@ -54,9 +60,10 @@ export async function POST(
 
     return NextResponse.json({ data: { status: "PENDING_REVIEW" } });
   } catch (err: unknown) {
-    if (err instanceof Error && (err.message === "UNAUTHORIZED" || err.message === "FORBIDDEN")) {
-      return NextResponse.json({ code: err.message.toLowerCase() }, { status: err.message === "UNAUTHORIZED" ? 401 : 403 });
-    }
+    if (err instanceof Error && err.message === "UNAUTHORIZED")
+      return NextResponse.json({ code: "unauthorized" }, { status: 401 });
+    if (err instanceof Error && err.message === "FORBIDDEN")
+      return NextResponse.json({ code: "forbidden" }, { status: 403 });
     return NextResponse.json({ code: "internal_error" }, { status: 500 });
   }
 }

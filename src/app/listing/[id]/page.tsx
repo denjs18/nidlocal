@@ -7,8 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import type { ListingDetail } from "@/types";
 
 interface Props {
-  params: { id: string };
-  searchParams: { checkIn?: string; checkOut?: string; guests?: string };
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ checkIn?: string; checkOut?: string; guests?: string }>;
 }
 
 async function getListing(id: string): Promise<ListingDetail | null> {
@@ -36,7 +36,8 @@ const residenceLabels: Record<string, string> = {
 };
 
 export async function generateMetadata({ params }: Props) {
-  const listing = await getListing(params.id);
+  const { id } = await params;
+  const listing = await getListing(id);
   if (!listing) return { title: "Logement introuvable" };
   return {
     title: listing.title,
@@ -45,14 +46,16 @@ export async function generateMetadata({ params }: Props) {
 }
 
 export default async function ListingPage({ params, searchParams }: Props) {
-  const listing = await getListing(params.id);
+  const { id } = await params;
+  const sp = await searchParams;
+  const listing = await getListing(id);
   if (!listing) notFound();
 
   const nights =
-    searchParams.checkIn && searchParams.checkOut
+    sp.checkIn && sp.checkOut
       ? Math.round(
-          (new Date(searchParams.checkOut).getTime() -
-            new Date(searchParams.checkIn).getTime()) /
+          (new Date(sp.checkOut).getTime() -
+            new Date(sp.checkIn).getTime()) /
             (1000 * 60 * 60 * 24)
         )
       : null;
@@ -68,9 +71,9 @@ export default async function ListingPage({ params, searchParams }: Props) {
   };
 
   const bookingParams = new URLSearchParams();
-  if (searchParams.checkIn) bookingParams.set("checkIn", searchParams.checkIn);
-  if (searchParams.checkOut) bookingParams.set("checkOut", searchParams.checkOut);
-  if (searchParams.guests) bookingParams.set("guests", searchParams.guests);
+  if (sp.checkIn) bookingParams.set("checkIn", sp.checkIn);
+  if (sp.checkOut) bookingParams.set("checkOut", sp.checkOut);
+  if (sp.guests) bookingParams.set("guests", sp.guests);
 
   return (
     <div className="min-h-screen bg-white">

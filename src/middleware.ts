@@ -1,31 +1,34 @@
-import { auth } from "@/lib/auth/config";
+// Middleware Next.js — Edge Runtime compatible
+// Utilise uniquement auth.config.ts (sans bcrypt ni Prisma)
+
+import NextAuth from "next-auth";
+import { authConfig } from "@/auth.config";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import type { UserRole } from "@prisma/client";
 
-// Routes protégées par rôle
-const PROTECTED_ROUTES: Record<string, string[]> = {
-  "/host": ["HOST", "ADMIN"],
-  "/admin": ["ADMIN"],
+const { auth } = NextAuth(authConfig);
+
+const PROTECTED_ROUTES: Record<string, UserRole[]> = {
+  "/host":         ["HOST", "ADMIN"],
+  "/admin":        ["ADMIN"],
   "/municipality": ["MUNICIPALITY", "ADMIN"],
-  "/account": ["GUEST", "HOST", "ADMIN", "MUNICIPALITY"],
+  "/account":      ["GUEST", "HOST", "ADMIN", "MUNICIPALITY"],
 };
 
-export default auth((req: NextRequest & { auth: { user?: { role?: string } } | null }) => {
+export default auth((req: NextRequest & { auth: { user?: { role?: UserRole } } | null }) => {
   const { pathname } = req.nextUrl;
 
-  // Vérification des routes protégées
   for (const [prefix, allowedRoles] of Object.entries(PROTECTED_ROUTES)) {
     if (pathname.startsWith(prefix)) {
-      const session = req.auth;
-
-      if (!session?.user) {
+      if (!req.auth?.user) {
         const loginUrl = new URL("/login", req.url);
         loginUrl.searchParams.set("callbackUrl", pathname);
         return NextResponse.redirect(loginUrl);
       }
 
-      const userRole = session.user.role as string;
-      if (!allowedRoles.includes(userRole)) {
+      const role = req.auth.user.role;
+      if (!role || !allowedRoles.includes(role)) {
         return NextResponse.redirect(new URL("/", req.url));
       }
     }

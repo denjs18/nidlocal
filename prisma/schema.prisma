@@ -1,0 +1,632 @@
+// NidLocal — Schéma Prisma
+// Base de données : PostgreSQL (région EU)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// AUTH & USERS
+// ============================================================
+
+enum UserRole {
+  GUEST
+  HOST
+  ADMIN
+  MUNICIPALITY
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  passwordHash  String?
+  name          String?
+  image         String?
+  role          UserRole  @default(GUEST)
+  isSuspended   Boolean   @default(false)
+  suspendedAt   DateTime?
+  suspendReason String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts         Account[]
+  sessions         Session[]
+  guestProfile     GuestProfile?
+  hostProfile      HostProfile?
+  municipalityUser MunicipalityUser?
+  sentMessages     Message[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ============================================================
+// PROFILS
+// ============================================================
+
+model GuestProfile {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  phone     String?
+  bio       String?
+  avatar    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookings  Booking[]
+  reviews   Review[]
+
+  @@map("guest_profiles")
+}
+
+enum HostType {
+  INDIVIDUAL
+  PROFESSIONAL
+}
+
+model HostProfile {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  displayName      String?
+  hostType         HostType @default(INDIVIDUAL)
+  phone            String?
+  bio              String?
+  avatar           String?
+  iban             String?  // Stocké chiffré
+  billingName      String?
+  billingAddress   String?
+  billingVatNumber String?
+  isVerified       Boolean  @default(false)
+  rating           Float?
+  totalReviews     Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listings Listing[]
+  payouts  Payout[]
+
+  @@map("host_profiles")
+}
+
+// ============================================================
+// GÉOGRAPHIE & RÈGLES LOCALES
+// ============================================================
+
+model Commune {
+  id             String  @id @default(cuid())
+  inseeCode      String  @unique // 5 chiffres INSEE
+  name           String
+  postalCode     String?
+  department     String  // "75", "69"…
+  departmentName String?
+  region         String?
+  latitude       Float?
+  longitude      Float?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  localRules       LocalRules?
+  listings         Listing[]
+  municipalityUsers MunicipalityUser[]
+
+  @@map("communes")
+}
+
+model LocalRules {
+  id                   String   @id @default(cuid())
+  communeId            String   @unique
+  registrationRequired Boolean  @default(false)
+  nightCapPrimary      Int?     // Plafond nuits/an résidence principale
+  touristTaxRates      Json?    // { "hotel": 2.50, "meuble": 1.50, "chambre": 0.90 }
+  requiresChangePurpose Boolean @default(false)
+  notes                String?  @db.Text
+  updatedAt            DateTime @updatedAt
+
+  commune Commune @relation(fields: [communeId], references: [id])
+
+  @@map("local_rules")
+}
+
+// ============================================================
+// ANNONCES
+// ============================================================
+
+enum ListingType {
+  APARTMENT
+  HOUSE
+  PRIVATE_ROOM
+  SHARED_ROOM
+  OTHER
+}
+
+enum ResidenceStatus {
+  PRIMARY      // Résidence principale
+  SECONDARY    // Résidence secondaire
+  PROFESSIONAL // Usage professionnel
+}
+
+enum ListingStatus {
+  DRAFT
+  PENDING_REVIEW
+  PUBLISHED
+  SUSPENDED
+  ARCHIVED
+}
+
+enum ComplianceStatus {
+  PENDING
+  COMPLIANT
+  WARNING
+  BLOCKED
+}
+
+enum CancellationPolicy {
+  FLEXIBLE  // Remboursement si annulation 24h avant
+  MODERATE  // Remboursement si annulation 5 jours avant
+  STRICT    // 50% remboursé si 7j avant, 100% si 14j avant
+}
+
+model Listing {
+  id                 String             @id @default(cuid())
+  hostId             String
+  communeId          String
+
+  // Adresse
+  streetAddress      String
+  addressComplement  String?
+  city               String
+  postalCode         String
+  latitude           Float?
+  longitude          Float?
+
+  // Classification
+  listingType        ListingType
+  residenceStatus    ResidenceStatus
+  status             ListingStatus      @default(DRAFT)
+
+  // Contenu
+  title              String
+  description        String             @db.Text
+  maxGuests          Int
+  bedrooms           Int
+  beds               Int
+  bathrooms          Float
+  surfaceArea        Float?             // m²
+
+  // Tarifs (en centimes EUR)
+  pricePerNight      Int
+  cleaningFee        Int                @default(0)
+  weeklyDiscount     Float?             // 0.10 = 10%
+  monthlyDiscount    Float?
+
+  // Légal
+  registrationNumber String?
+  hasRegistration    Boolean            @default(false)
+  complianceStatus   ComplianceStatus   @default(PENDING)
+
+  // Règles & options
+  cancellationPolicy CancellationPolicy @default(MODERATE)
+  houseRules         String?            @db.Text
+  allowsInstantBook  Boolean            @default(false)
+  checkInTime        String?            // "14:00"
+  checkOutTime       String?            // "11:00"
+  hasEcoLabel        Boolean            @default(false)
+
+  // Modération
+  moderationNotes    String?            @db.Text
+  reviewedAt         DateTime?
+
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  host          HostProfile      @relation(fields: [hostId], references: [id])
+  commune       Commune          @relation(fields: [communeId], references: [id])
+  photos        ListingPhoto[]
+  amenities     ListingAmenity[]
+  bookings      Booking[]
+  reviews       Review[]
+  blockedDates  BlockedDate[]
+  nightCounter  NightCounter?
+  inspections   Inspection[]
+  conversations Conversation[]
+
+  @@map("listings")
+}
+
+model ListingPhoto {
+  id        String   @id @default(cuid())
+  listingId String
+  url       String
+  caption   String?
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@map("listing_photos")
+}
+
+model Amenity {
+  id       String @id @default(cuid())
+  name     String @unique
+  category String // "base", "comfort", "safety", "eco"
+  icon     String?
+
+  listings ListingAmenity[]
+
+  @@map("amenities")
+}
+
+model ListingAmenity {
+  listingId String
+  amenityId String
+
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  amenity Amenity @relation(fields: [amenityId], references: [id], onDelete: Cascade)
+
+  @@id([listingId, amenityId])
+  @@map("listing_amenities")
+}
+
+model BlockedDate {
+  id        String   @id @default(cuid())
+  listingId String
+  date      DateTime @db.Date
+  reason    String?  // "owner_use", "maintenance", "other"
+
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@unique([listingId, date])
+  @@map("blocked_dates")
+}
+
+model NightCounter {
+  id         String   @id @default(cuid())
+  listingId  String   @unique
+  year       Int
+  nightsUsed Int      @default(0)
+  resetAt    DateTime // 1er janvier de l'année suivante
+
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@map("night_counters")
+}
+
+// ============================================================
+// RÉSERVATIONS
+// ============================================================
+
+enum BookingStatus {
+  PENDING_REQUEST
+  CONFIRMED
+  CANCELLED_BY_GUEST
+  CANCELLED_BY_HOST
+  CANCELLED_BY_ADMIN
+  COMPLETED
+  DISPUTED
+}
+
+enum StayType {
+  SHORT  // 1-30 nuits
+  MEDIUM // 31-180 nuits
+}
+
+model Booking {
+  id        String        @id @default(cuid())
+  listingId String
+  guestId   String
+
+  checkIn   DateTime      @db.Date
+  checkOut  DateTime      @db.Date
+  nights    Int
+  guests    Int
+
+  status    BookingStatus @default(PENDING_REQUEST)
+  stayType  StayType
+
+  // Décomposition financière (centimes EUR)
+  nightsAmount Int
+  cleaningFee  Int
+  serviceFee   Int
+  touristTax   Int        @default(0)
+  totalAmount  Int
+
+  requestedAt        DateTime  @default(now())
+  confirmedAt        DateTime?
+  cancelledAt        DateTime?
+  cancellationReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  listing      Listing       @relation(fields: [listingId], references: [id])
+  guest        GuestProfile  @relation(fields: [guestId], references: [id])
+  payment      Payment?
+  payout       Payout?
+  messages     Message[]
+  conversation Conversation?
+  inspections  Inspection[]
+  review       Review?
+  dispute      Dispute?
+
+  @@map("bookings")
+}
+
+// ============================================================
+// PAIEMENTS
+// ============================================================
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  CAPTURED
+  REFUNDED
+  PARTIALLY_REFUNDED
+  FAILED
+}
+
+model Payment {
+  id           String        @id @default(cuid())
+  bookingId    String        @unique
+  amount       Int           // Centimes EUR
+  currency     String        @default("EUR")
+  status       PaymentStatus @default(PENDING)
+  provider     String        @default("stripe")
+  providerRef  String?       // Payment Intent ID Stripe
+  capturedAt   DateTime?
+  refundedAt   DateTime?
+  refundAmount Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+
+  @@map("payments")
+}
+
+enum PayoutStatus {
+  PENDING
+  SCHEDULED
+  PROCESSED
+  FAILED
+}
+
+model Payout {
+  id               String       @id @default(cuid())
+  hostId           String
+  bookingId        String       @unique
+  amount           Int          // Centimes après commission
+  commissionRate   Float        // 0.10 = 10%
+  commissionAmount Int
+  status           PayoutStatus @default(PENDING)
+  scheduledAt      DateTime?
+  processedAt      DateTime?
+  providerRef      String?
+
+  createdAt DateTime @default(now())
+
+  host    HostProfile @relation(fields: [hostId], references: [id])
+  booking Booking     @relation(fields: [bookingId], references: [id])
+
+  @@map("payouts")
+}
+
+// ============================================================
+// MESSAGERIE
+// ============================================================
+
+model Conversation {
+  id        String   @id @default(cuid())
+  listingId String
+  bookingId String?  @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  listing      Listing                   @relation(fields: [listingId], references: [id])
+  booking      Booking?                  @relation(fields: [bookingId], references: [id])
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  conversationId String
+  userId         String
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+  @@map("conversation_participants")
+}
+
+model Message {
+  id             String   @id @default(cuid())
+  conversationId String
+  senderId       String
+  bookingId      String?
+  content        String   @db.Text
+  readAt         DateTime?
+  createdAt      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation(fields: [senderId], references: [id])
+  booking      Booking?     @relation(fields: [bookingId], references: [id])
+
+  @@map("messages")
+}
+
+// ============================================================
+// ÉTATS DES LIEUX
+// ============================================================
+
+enum InspectionType {
+  CHECK_IN
+  CHECK_OUT
+  REFERENCE
+}
+
+enum InspectionRole {
+  GUEST
+  HOST
+}
+
+enum MediaType {
+  PHOTO
+  VIDEO
+}
+
+model Inspection {
+  id          String         @id @default(cuid())
+  listingId   String
+  bookingId   String?
+  authorId    String         // userId
+  type        InspectionType
+  authorRole  InspectionRole
+  notes       String?        @db.Text
+  isReference Boolean        @default(false)
+  createdAt   DateTime       @default(now())
+
+  listing Listing          @relation(fields: [listingId], references: [id])
+  booking Booking?         @relation(fields: [bookingId], references: [id])
+  media   InspectionMedia[]
+
+  @@map("inspections")
+}
+
+model InspectionMedia {
+  id           String    @id @default(cuid())
+  inspectionId String
+  url          String
+  mediaType    MediaType @default(PHOTO)
+  caption      String?
+  position     Int       @default(0)
+  createdAt    DateTime  @default(now())
+
+  inspection Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+
+  @@map("inspection_media")
+}
+
+// ============================================================
+// AVIS
+// ============================================================
+
+model Review {
+  id        String   @id @default(cuid())
+  listingId String
+  bookingId String   @unique
+  guestId   String
+  rating    Int      // 1 à 5
+  comment   String?  @db.Text
+  isPublic  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  listing Listing      @relation(fields: [listingId], references: [id])
+  booking Booking      @relation(fields: [bookingId], references: [id])
+  guest   GuestProfile @relation(fields: [guestId], references: [id])
+
+  @@map("reviews")
+}
+
+// ============================================================
+// LITIGES
+// ============================================================
+
+enum DisputeType {
+  DAMAGE
+  CLEANING
+  NO_SHOW
+  LISTING_MISREPRESENTATION
+  OTHER
+}
+
+enum DisputeStatus {
+  OPEN
+  INVESTIGATING
+  RESOLVED_FOR_GUEST
+  RESOLVED_FOR_HOST
+  CLOSED
+}
+
+model Dispute {
+  id          String        @id @default(cuid())
+  bookingId   String        @unique
+  reporterId  String        // userId
+  type        DisputeType
+  status      DisputeStatus @default(OPEN)
+  description String        @db.Text
+  resolution  String?       @db.Text
+  resolvedAt  DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+
+  @@map("disputes")
+}
+
+// ============================================================
+// PORTAIL MAIRIES
+// ============================================================
+
+model MunicipalityUser {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  communeId String
+  role      String   @default("AGENT") // AGENT | MANAGER
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  commune Commune @relation(fields: [communeId], references: [id])
+
+  @@map("municipality_users")
+}

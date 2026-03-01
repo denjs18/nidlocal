@@ -42,10 +42,10 @@ export async function stripeRefund(
   };
 }
 
-export async function constructWebhookEvent(
+export function constructWebhookEvent(
   payload: string | Buffer,
   signature: string
-): Promise<Stripe.Event> {
+): Stripe.Event {
   return stripe.webhooks.constructEvent(
     payload,
     signature,

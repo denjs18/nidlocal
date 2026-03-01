@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type Stripe from "stripe";
 import { db } from "@/lib/db";
 import { constructWebhookEvent } from "@/lib/payment/providers/stripe";
 import { incrementNightCounter } from "@/lib/compliance/rules";
@@ -14,9 +15,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing signature" }, { status: 400 });
   }
 
-  let event;
+  let event: Stripe.Event;
   try {
-    event = await constructWebhookEvent(payload, sig);
+    event = constructWebhookEvent(payload, sig);
   } catch (err) {
     console.error("[webhook] Signature invalide", err);
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
@@ -25,7 +26,8 @@ export async function POST(req: NextRequest) {
   switch (event.type) {
     case "payment_intent.amount_capturable_updated":
     case "payment_intent.succeeded": {
-      const intent = event.data.object as { id: string; metadata: { bookingId: string } };
+      // Dans ces cases, event.data.object est bien un PaymentIntent
+      const intent = event.data.object as Stripe.PaymentIntent;
       const bookingId = intent.metadata?.bookingId;
       if (!bookingId) break;
 
@@ -36,13 +38,11 @@ export async function POST(req: NextRequest) {
       if (!booking) break;
 
       await db.$transaction(async (tx) => {
-        // Mettre à jour paiement
         await tx.payment.update({
           where: { bookingId },
           data: { status: "CAPTURED", capturedAt: new Date(), providerRef: intent.id },
         });
 
-        // Confirmer réservation si pas déjà fait
         if (booking.status === "PENDING_REQUEST") {
           await tx.booking.update({
             where: { id: bookingId },
@@ -50,7 +50,6 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        // Créer le versement hôte
         const { net, commission } = calcPayout(
           booking.nightsAmount,
           booking.cleaningFee,
@@ -68,13 +67,12 @@ export async function POST(req: NextRequest) {
         });
       });
 
-      // Incrémenter compteur nuits (hors transaction pour les erreurs non-critiques)
       await incrementNightCounter(booking.listingId, booking.nights).catch(console.error);
       break;
     }
 
     case "payment_intent.payment_failed": {
-      const intent = event.data.object as { metadata: { bookingId: string } };
+      const intent = event.data.object as Stripe.PaymentIntent;
       const bookingId = intent.metadata?.bookingId;
       if (!bookingId) break;
 

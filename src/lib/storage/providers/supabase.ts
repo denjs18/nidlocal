@@ -19,7 +19,7 @@ export async function uploadToSupabase(
       Authorization: `Bearer ${SUPABASE_KEY}`,
       "Content-Type": contentType,
     },
-    body: buffer,
+    body: new Uint8Array(buffer),
   });
 
   if (!res.ok) {

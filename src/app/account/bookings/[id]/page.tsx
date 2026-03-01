@@ -57,6 +57,7 @@ export default async function BookingDetailPage({ params }: Props) {
       },
       guest: { include: { user: { select: { id: true } } } },
       payment: true,
+      review: true,
     },
   });
 
@@ -184,6 +185,15 @@ export default async function BookingDetailPage({ params }: Props) {
           </p>
           {canCancel && <CancelButton bookingId={booking.id} />}
         </div>
+
+        {/* Leave a review */}
+        {booking.status === "COMPLETED" && !booking.review && (
+          <div className="px-6 pb-6">
+            <Link href={`/account/bookings/${booking.id}/review`} className="btn-primary text-sm">
+              Laisser un avis
+            </Link>
+          </div>
+        )}
       </div>
 
       <div className="flex gap-3">
